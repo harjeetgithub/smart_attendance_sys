@@ -10,9 +10,9 @@ import pandas as pd
 # -----------------------------
 # CONFIGURATION
 # -----------------------------
-CLASS_LAT = 30.5160   # Replace with your classroom latitude
-CLASS_LON = 76.6595   # Replace with your classroom longitude
-RADIUS_METERS = 80    # Allowed distance
+CLASS_LAT = 30.514422956759578   # Replace with your classroom latitude
+CLASS_LON = 76.66044734358132   # Replace with your classroom longitude
+RADIUS_METERS = 50    # Allowed distance
 
 # -----------------------------
 # DISTANCE FUNCTION (HAVERSINE)
