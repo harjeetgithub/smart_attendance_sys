@@ -10,8 +10,8 @@ import pandas as pd
 # -----------------------------
 # CONFIGURATION
 # -----------------------------
-CLASS_LAT = 30.514422956759578   # Replace with your classroom latitude
-CLASS_LON = 76.66044734358132   # Replace with your classroom longitude
+CLASS_LAT = 30.51435115160501   # Replace with your classroom latitude
+CLASS_LON = 76.66050026836402   # Replace with your classroom longitude
 RADIUS_METERS = 50    # Allowed distance
 
 # -----------------------------
