@@ -1,189 +1,106 @@
 import streamlit as st
-from math import radians, sin, cos, sqrt, atan2
-from datetime import datetime
+import websocket
+import json
+import threading
 import time
-import matplotlib.pyplot as plt
-from supabase import create_client
 from streamlit_js_eval import get_geolocation
-import folium
-from streamlit_folium import st_folium
+
+WS_URL = "ws://localhost:8000/ws"
 
 # =============================
-# CONFIGURATION
+# SESSION STATE
 # =============================
-SUPABASE_URL = "https://lonyucthkqaophngqtwj.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxvbnl1Y3Roa3Fhb3BobmdxdHdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwOTgzNjgsImV4cCI6MjA4NzY3NDM2OH0.BXcW9yMwhhy0DdcWy_ECu7WhAXgysxST8v2desQ_f8o"
+if "users" not in st.session_state:
+    st.session_state.users = {}
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-st.set_page_config(page_title="Real-Time Distance Tracker", layout="centered")
-
-
-def get_nearest_user(users, current_user_id, lat, lon):
-    nearest_user = None
-    min_distance = float("inf")
-
-    for u in users:
-        if u["user_id"] == current_user_id:
-            continue
-
-        dist = calculate_distance(lat, lon, u["lat"], u["lon"])
-
-        if dist < min_distance:
-            min_distance = dist
-            nearest_user = u
-
-    return nearest_user, min_distance
-# =============================
-# DISTANCE FUNCTION
-# =============================
-def calculate_distance(lat1, lon1, lat2, lon2):
-    R = 6371
-    dlat = radians(lat2 - lat1)
-    dlon = radians(lon2 - lon1)
-
-    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
-    c = 2 * atan2(sqrt(a), sqrt(1 - a))
-
-    return R * c * 1000  # meters
-
+if "ws" not in st.session_state:
+    st.session_state.ws = None
 
 # =============================
-# MAP FUNCTION (FIXED USAGE)
+# WEBSOCKET HANDLERS
 # =============================
-def render_map(users):
-    if not users:
-        return
+def on_message(ws, message):
+    st.session_state.users = json.loads(message)
 
-    center_lat = sum(u["lat"] for u in users) / len(users)
-    center_lon = sum(u["lon"] for u in users) / len(users)
+def on_open(ws):
+    print("✅ Connected to WebSocket")
+    st.session_state.ws = ws
 
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=18)
+def start_ws():
+    ws = websocket.WebSocketApp(
+        WS_URL,
+        on_message=on_message,
+        on_open=on_open
+    )
+    ws.run_forever()
 
-    for u in users:
-        folium.Marker(
-            location=[u["lat"], u["lon"]],
-            popup=u["user_id"]
-        ).add_to(m)
-
-    st_folium(m, width=700, height=500)
-
-
-# =============================
-# ATTENDANCE LOGIC
-# =============================
-def mark_attendance(users, classroom_lat, classroom_lon):
-    attendance = []
-
-    for u in users:
-        dist = calculate_distance(
-            classroom_lat, classroom_lon,
-            u["lat"], u["lon"]
-        )
-
-        status = "PRESENT" if dist < 100 else "ABSENT"
-
-        attendance.append({
-            "user_id": u["user_id"],
-            "distance": dist,
-            "status": status
-        })
-
-    return attendance
-
-
-# =============================
-# HEADER
-# =============================
-st.title("📍 Real-Time Device Distance Tracker")
-st.caption("Live location sharing between connected users")
+# start websocket thread once
+if "ws_started" not in st.session_state:
+    threading.Thread(target=start_ws, daemon=True).start()
+    st.session_state.ws_started = True
 
 # =============================
 # USER INPUT
 # =============================
-user_id = st.text_input("Enter Unique ID (Roll No / Name)")
+user_id = st.text_input("Enter ID")
 
 # =============================
-# GET GEOLOCATION
+# LOCATION
 # =============================
 location = get_geolocation()
-lat, lon = None, None
 
 if location and "coords" in location:
     lat = location["coords"]["latitude"]
     lon = location["coords"]["longitude"]
-    st.success(f"📍 Your Location: {lat:.6f}, {lon:.6f}")
+
+    st.success(f"📍 {lat:.6f}, {lon:.6f}")
+
+    # ✅ SEND using SAME websocket connection
+    if st.session_state.ws and user_id:
+        try:
+            st.session_state.ws.send(json.dumps({
+                "user_id": user_id,
+                "lat": lat,
+                "lon": lon
+            }))
+        except:
+            st.warning("WebSocket not ready yet...")
+
+# =============================
+# DISPLAY USERS
+# =============================
+st.subheader("📡 Live Users")
+
+users = st.session_state.users
+
+if users:
+    for uid, u in users.items():
+        st.write(f"{uid}: {u['lat']}, {u['lon']}")
 else:
-    st.warning("Waiting for location permission...")
+    st.info("Waiting for other users...")
 
 # =============================
-# UPDATE LOCATION
+# DISTANCE FUNCTION
 # =============================
-if lat and lon and user_id:
-    supabase.table("live_locations").upsert({
-        "user_id": user_id,
-        "lat": lat,
-        "lon": lon,
-        "updated_at": datetime.now().isoformat()
-    }).execute()
+from math import radians, sin, cos, sqrt, atan2
 
-# =============================
-# FETCH USERS
-# =============================
-data = supabase.table("live_locations").select("*").execute()
-users = data.data if data.data else []
+def distance(lat1, lon1, lat2, lon2):
+    R = 6371
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+
+    a = sin(dlat/2)**2 + cos(radians(lat1))*cos(radians(lat2))*sin(dlon/2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1-a))
+
+    return R * c * 1000
 
 # =============================
 # DISTANCE DISPLAY
 # =============================
-st.subheader("📊 Active Users")
+if user_id in users:
+    my = users[user_id]
 
-st.subheader("📊 Live Distance Between Devices")
-
-if users and lat and lon:
-
-    nearest_user, dist = get_nearest_user(users, user_id, lat, lon)
-
-    if nearest_user:
-
-        st.success(f"👤 Tracking: {nearest_user['user_id']}")
-
-        st.metric("📏 Live Distance", f"{dist:.2f} m")
-
-        if dist < 50:
-            st.warning("⚠️ Very Close Proximity!")
-        elif dist < 100:
-            st.info("📍 Nearby")
-        else:
-            st.info("📡 Far away")
-
-# =============================
-# MAP RENDER CALL (IMPORTANT FIX)
-# =============================
-if users:
-    st.subheader("🗺️ Live Location Map")
-    render_map(users)   # ✅ FUNCTION CALL ADDED HERE
-
-# =============================
-# OPTIONAL MATPLOTLIB VIEW (KEEP OR REMOVE)
-# =============================
-if users:
-    st.subheader("📌 Simple Scatter View")
-
-    fig, ax = plt.subplots()
-
-    for u in users:
-        ax.scatter(u["lon"], u["lat"])
-        ax.text(u["lon"], u["lat"], u["user_id"])
-
-    ax.set_xlabel("Longitude")
-    ax.set_ylabel("Latitude")
-    ax.set_title("User Locations")
-
-    st.pyplot(fig)
-
-# =============================
-# AUTO REFRESH
-# =============================
-time.sleep(2)
-st.rerun()
+    for uid, u in users.items():
+        if uid != user_id:
+            dist = distance(my["lat"], my["lon"], u["lat"], u["lon"])
+            st.metric(f"Distance to {uid}", f"{dist:.2f} m")
