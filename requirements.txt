@@ -37,3 +37,4 @@ supabase
 matplotlib
 folium
 streamlit-folium
+websocket-client
