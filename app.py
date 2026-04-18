@@ -18,6 +18,22 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 st.set_page_config(page_title="Real-Time Distance Tracker", layout="centered")
 
+
+def get_nearest_user(users, current_user_id, lat, lon):
+    nearest_user = None
+    min_distance = float("inf")
+
+    for u in users:
+        if u["user_id"] == current_user_id:
+            continue
+
+        dist = calculate_distance(lat, lon, u["lat"], u["lon"])
+
+        if dist < min_distance:
+            min_distance = dist
+            nearest_user = u
+
+    return nearest_user, min_distance
 # =============================
 # DISTANCE FUNCTION
 # =============================
@@ -122,18 +138,24 @@ users = data.data if data.data else []
 # =============================
 st.subheader("📊 Active Users")
 
-if users:
-    for user in users:
-        if user["user_id"] != user_id and lat and lon:
+st.subheader("📊 Live Distance Between Devices")
 
-            dist = calculate_distance(
-                lat, lon,
-                user["lat"], user["lon"]
-            )
+if users and lat and lon:
 
-            st.write(f"📏 Distance to **{user['user_id']}**: {dist:.2f} meters")
-else:
-    st.info("No other active users found.")
+    nearest_user, dist = get_nearest_user(users, user_id, lat, lon)
+
+    if nearest_user:
+
+        st.success(f"👤 Tracking: {nearest_user['user_id']}")
+
+        st.metric("📏 Live Distance", f"{dist:.2f} m")
+
+        if dist < 50:
+            st.warning("⚠️ Very Close Proximity!")
+        elif dist < 100:
+            st.info("📍 Nearby")
+        else:
+            st.info("📡 Far away")
 
 # =============================
 # MAP RENDER CALL (IMPORTANT FIX)
